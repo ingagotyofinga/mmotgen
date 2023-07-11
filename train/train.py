@@ -13,14 +13,14 @@ optimizerG = optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.beta1,
 
 # Training loop
 
-# TODO: Update D network first
+# Update D network first
 
-# TODO: train with real data
+# train with real data
 
-# TODO: train with fake data
+# train with fake data
 
-# TODO: Update G network
+# Update G network
 
-# TODO: train with real data
+# train with real data
 
-# TODO: train with fake data
+# train with fake data
