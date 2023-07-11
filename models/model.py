@@ -2,11 +2,11 @@
 import torch.nn as nn
 
 
-# TODO: Generator
-
+# DCGAN: deep convolutional generative adversarial network
 class Generator(nn.Module):
     def __init__(self, latent_size, ngf, out_channels):
         super(Generator, self).__init__()
+        # define Generator layers
         self.main = nn.Sequential(
             nn.ConvTranspose2d(latent_size, ngf * 8, kernel_size=4, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(ngf * 8),
@@ -24,7 +24,20 @@ class Generator(nn.Module):
             nn.Tanh()
         )
 
+        self.initial_weights()
+
+    def initial_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.ConvTranspose2d) or isinstance(module, nn.Linear):
+                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            if isinstance(module, nn.BatchNorm2d):
+                nn.init.normal_(module.weight, mean=1.0, std=0.02)
+                nn.init.zeros_(module.bias)
+
     def forward(self, x):
+        # forward pass
         return self.main(x)
 
 
@@ -54,6 +67,27 @@ class Discriminator(nn.Module):
             nn.Sigmoid()
         )
 
+        # initialize the weights
+        self.initial_weights()
+
+    def initial_weights(self):
+        # iterate over all modules
+        for module in self.modules():
+            # initialize weights for convolutional and linear layers with normal dist
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                # initial biases to zeros
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            # initialize weights for batch with normal dist
+            if isinstance(module, nn.BatchNorm2d):
+                nn.init.normal_(module.weight, mean=1.0, std=0.02)
+                nn.init.zeros_(module.bias)
+
     def forward(self, x):
+        # forward pass
         return self.main(x)
-# TODO: Loss function
+
+
+# binary cross entropy loss
+criterion = nn.BCELoss()

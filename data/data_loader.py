@@ -5,6 +5,8 @@ import numpy as np
 
 class DataLoader:
     def __init__(self, dataset, batch_size=32, shuffle=True):
+        self.current_batch = None
+        self.indices = None
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle
