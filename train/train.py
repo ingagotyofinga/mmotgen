@@ -1,8 +1,7 @@
 # A script for handling the training process of the model.
 import torch.optim as optim
-from models.model import Generator, Discriminator, criterion
+from models.model import Generator, Discriminator
 from utils.argparse_utils import opt
-import random
 
 # Instantiate G and D
 generator = Generator(100, 64, 3)
