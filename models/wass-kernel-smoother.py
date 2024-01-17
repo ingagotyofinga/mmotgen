@@ -17,6 +17,7 @@ class OTMapNN(nn.Module):
 
 # TODO: Define Kh and compute it to feed into custom_loss
 # TODO: wtf
+# TODO: more.
 # TODO: What is T_mu0 and mu_i here? How do they relate to T_mu0#mu_i?
 # Custom loss function incorporating Wasserstein-2 distance and kernel smoother
 def custom_loss(T_mu0, mu_i, nu_i, Kh):
