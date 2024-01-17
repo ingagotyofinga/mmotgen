@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import geomloss
 
 
 class OTMapNN(nn.Module):
@@ -15,11 +16,28 @@ class OTMapNN(nn.Module):
         x = self.fc2(x)
         return x
 
+def box_kernel(mu_0, mu_i, h):
+    # Compute Wasserstein-2 distance between mu_0 and mu_i
+    sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.0)
+    wasserstein_distance = sink_loss(mu_0.view(1, -1, 1), mu_i.view(1, -1, 1))
 
+    # Check if the Wasserstein-2 distance is less than or equal to h
+    indicator = torch.tensor(1.0) if wasserstein_distance <= h else torch.tensor(0.0)
+
+    # Compute the kernel
+    kernel = (1 / (2 * h)) * indicator
+
+    return kernel
+
+print(f'Kernel Value: {kernel_value.item()}')
+# TODO: What is T_mu0 and mu_i here? How do they relate to T_mu0#mu_i?
 # Custom loss function incorporating Wasserstein-2 distance and kernel smoother
 def custom_loss(T_mu0, mu_i, nu_i, Kh):
-    # Implement your Wasserstein-2 distance computation here
-    # For example, you can use PyTorch's functions for computing distances.
+    # computes the loss locally
+    # computes W2 distance between T_mu0#mu_i and nu_i using sinkhorn divergence
+    # blur param bw sinkhorn and kernel loss
+    sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.0)
+    wasserstein_distance = sink_loss(mu_i.view(1, -1, 1), nu_i.view(1, -1, 1))
 
     # Compute the kernel smoother term
     smoother_term = torch.sum(torch.pow(T_mu0(mu_i) - nu_i, 2) * Kh)
@@ -27,9 +45,10 @@ def custom_loss(T_mu0, mu_i, nu_i, Kh):
     # Combine the Wasserstein-2 distance and the kernel smoother term
     total_loss =  # Combine your Wasserstein-2 loss and smoother term appropriately
 
-    return total_loss
+    return sink_loss
 
 
+# TODO: what should these values be?
 # Example usage in training loop
 input_size =  # Set your input size
 hidden_size =  # Set your hidden size
