@@ -2,3 +2,5 @@ torch>=1.7.0
 numpy>=1.19.0
 matplotlib>=3.3.0
 
+
+geomloss~=0.2.6
