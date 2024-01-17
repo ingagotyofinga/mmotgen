@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import geomloss
-
+import matplotlib.pyplot as plt
 
 class OTMapNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
@@ -29,28 +29,49 @@ def box_kernel(mu_0, mu_i, h):
 
     return kernel
 
-print(f'Kernel Value: {kernel_value.item()}')
-# TODO: What is T_mu0 and mu_i here? How do they relate to T_mu0#mu_i?
 # Custom loss function incorporating Wasserstein-2 distance and kernel smoother
-def custom_loss(T_mu0, mu_i, nu_i, Kh):
+def custom_loss(Tpush_i, mu_0, mu_i, nu_i):
     # computes the loss locally
-    # computes W2 distance between T_mu0#mu_i and nu_i using sinkhorn divergence
+    # computes W2 distance between T_mu0#mu_i (Tpush_i) and nu_i using sinkhorn divergence
     # blur param bw sinkhorn and kernel loss
     sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.0)
-    wasserstein_distance = sink_loss(mu_i.view(1, -1, 1), nu_i.view(1, -1, 1))
+    wasserstein_distance = sink_loss(Tpush_i.view(1, -1, 1), nu_i.view(1, -1, 1))
 
-    # Compute the kernel smoother term
-    smoother_term = torch.sum(torch.pow(T_mu0(mu_i) - nu_i, 2) * Kh)
+    # Compute the kernel
+    Kh = box_kernel(mu_0, mu_i, h)
 
     # Combine the Wasserstein-2 distance and the kernel smoother term
-    total_loss =  # Combine your Wasserstein-2 loss and smoother term appropriately
+    total_loss = wasserstein_distance*Kh # Combine your Wasserstein-2 loss and smoother term appropriately
 
-    return sink_loss
+    return total_loss
 
+# Set seed for reproducibility
+torch.manual_seed(42)
+
+# Parameters for the distributions
+mu_mean = 0.0
+mu_std = 1.0
+
+nu_mean = 2.0
+nu_std = 1.5
+
+# Number of samples
+num_samples = 100
+
+# Generate random samples for mu and nu
+mu_samples = torch.normal(mean=mu_mean, std=mu_std, size=(num_samples,))
+nu_samples = torch.normal(mean=nu_mean, std=nu_std, size=(num_samples,))
+
+# Plot the distributions
+plt.hist(mu_samples.numpy(), bins=20, alpha=0.5, label='mu', color='blue')
+plt.hist(nu_samples.numpy(), bins=20, alpha=0.5, label='nu', color='orange')
+plt.legend()
+plt.title('Random Distributions: mu and nu')
+plt.show()
 
 # TODO: what should these values be?
 # Example usage in training loop
-input_size =  # Set your input size
+input_size = num_samples  # num
 hidden_size =  # Set your hidden size
 output_size =  # Set your output size
 
@@ -62,15 +83,16 @@ num_epochs = 100
 for epoch in range(num_epochs):
     # Assuming inputs, mu_i, nu_i, and Kh are your data and kernel smoother parameters
     inputs = torch.tensor(input_data, requires_grad=True)
-    mu_i = torch.tensor(mu_i_data, requires_grad=False)
-    nu_i = torch.tensor(nu_i_data, requires_grad=False)
+    mu_i = torch.tensor(mu_samples, requires_grad=False)
+    nu_i = torch.tensor(nu_samples, requires_grad=False)
     Kh = torch.tensor(Kh_data, requires_grad=False)
 
     # Forward pass
     T_mu0 = model(inputs)
 
     # Compute loss
-    loss = custom_loss(T_mu0, mu_i, nu_i, Kh)
+    loss = sum(custom_loss(Tpush[i], mu0[i], mu[i], nu[i]) for i in range(input_size))
+
 
     # Backward pass and optimization
     optimizer.zero_grad()

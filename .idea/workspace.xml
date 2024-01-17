@@ -4,8 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="66f96e4d-5103-4bfc-bd4c-5764d2d9ab6e" name="Changes" comment="idk">
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="66f96e4d-5103-4bfc-bd4c-5764d2d9ab6e" name="Changes" comment="KERNEL FUNC ADDED">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/wass_kernel_smooth1.py" beforeDir="false" afterPath="$PROJECT_DIR$/wass_kernel_smooth1.py" afterDir="false" />
     </list>
@@ -163,7 +162,15 @@
       <option name="project" value="LOCAL" />
       <updated>1689107136478</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="KERNEL FUNC ADDED">
+      <option name="closed" value="true" />
+      <created>1705462765974</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1705462765974</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -197,6 +204,7 @@
     <MESSAGE value="model/ initial weights and loss&#10;train/ optimizer and todos" />
     <MESSAGE value="fixed problems" />
     <MESSAGE value="idk" />
-    <option name="LAST_COMMIT_MESSAGE" value="idk" />
+    <MESSAGE value="KERNEL FUNC ADDED" />
+    <option name="LAST_COMMIT_MESSAGE" value="KERNEL FUNC ADDED" />
   </component>
 </project>
