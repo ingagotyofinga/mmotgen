@@ -48,32 +48,36 @@ def custom_loss(Tpush_i, mu_0, mu_i, nu_i):
 # Set seed for reproducibility
 torch.manual_seed(42)
 
-# Parameters for the distributions
-mu_mean = 0.0
-mu_std = 1.0
+# Number of distributions
+num_distributions = 100
+num_bins = 100
 
-nu_mean = 2.0
-nu_std = 1.5
+# Lists to store mu distributions
+mu_distributions = []
+nu_distributions = []
 
-# Number of samples
-num_samples = 100
+for _ in range(num_distributions):
+    mu_mean = torch.randn(1).item()
+    mu_std = torch.abs(torch.randn(1)).item()
+    mu_samples = torch.normal(mean=mu_mean, std=mu_std, size=(num_bins,))
+    mu_samples = torch.abs(mu_samples)
+    mu_distribution = mu_samples / mu_samples.sum()
+    mu_distributions.append(mu_distribution)
 
-# Generate random samples for mu and nu
-mu_samples = torch.normal(mean=mu_mean, std=mu_std, size=(num_samples,))
-nu_samples = torch.normal(mean=nu_mean, std=nu_std, size=(num_samples,))
+    nu_mean = torch.randn(1).item()
+    nu_std = torch.abs(torch.randn(1)).item()
+    nu_samples = torch.normal(mean=nu_mean, std=nu_std, size=(num_bins,))
+    nu_samples = torch.abs(nu_samples)
+    nu_distribution = nu_samples / nu_samples.sum()
+    nu_distributions.append(nu_distribution)
 
-# Plot the distributions
-plt.hist(mu_samples.numpy(), bins=20, alpha=0.5, label='mu', color='blue')
-plt.hist(nu_samples.numpy(), bins=20, alpha=0.5, label='nu', color='orange')
-plt.legend()
-plt.title('Random Distributions: mu and nu')
-plt.show()
+source_dists = torch.stack(mu_distributions)
+target_dists = torch.stack(nu_distributions)
 
-# TODO: what should these values be?
 # Example usage in training loop
-input_size = num_samples  # num
-hidden_size =  # Set your hidden size
-output_size =  # Set your output size
+input_size = num_bins  # sample size of each distribution
+hidden_size = 64 # Set your hidden size
+output_size = 3  # Set your output size
 
 model = OTMapNN(input_size, hidden_size, output_size)
 optimizer = optim.SGD(model.parameters(), lr=learning_rate)
