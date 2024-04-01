@@ -4,3 +4,5 @@ matplotlib>=3.3.0
 
 
 geomloss~=0.2.6
+scikit-learn~=1.4.0
+ignite~=1.1.0
