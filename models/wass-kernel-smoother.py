@@ -9,8 +9,8 @@ import geomloss
 import matplotlib.pyplot as plt
 import time
 import random
-
-
+from ignite.engine import Engine, Events, State
+from ignite.handlers import EarlyStopping
 
 start_time = time.time()
 # Set a seed for reproducibility
@@ -96,6 +96,35 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
     mapped_samples = mu_target + (sigma_target / sigma_source) * (source_samples - mu_source)
     return mapped_samples
 
+
+# Define the training function
+def train_step(engine, batch):
+    model, optimizer, criterion, mu0_tensor, step = engine.state.model, engine.state.optimizer, engine.state.criterion, engine.state.mu0_tensor, engine.state.step
+    model.train()  # Set model to training mode
+    # Unpack batch data
+    inputs, targets = batch
+    # Forward pass
+    tpush = model(inputs)
+    # Calculate loss
+    loss = criterion(tpush, mu0_tensor, inputs, step * 100)
+    # Clear gradients
+    optimizer.zero_grad()
+    # Backpropagation
+    loss.backward()
+    # Parameter update
+    optimizer.step()
+    return loss.item()  # Return loss value
+
+
+# Define the evaluation function
+def evaluate_step(engine, batch):
+    model.eval()  # Set model to evaluation mode
+    with torch.no_grad():
+        inputs = batch[0]  # Unpack batch
+        outputs = model(inputs)  # Forward pass
+        return outputs
+
+
 # SIMULATE DATA
 # Number of distributions
 num_distributions = 100
@@ -174,35 +203,59 @@ learning_rate = 0.002  # Set your learning rate
 
 model = OTMapNN(input_size, hidden_size, output_size)
 optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+trainer = Engine(train_step)
+trainer.state.model = model
+trainer.state.optimizer = optimizer
+trainer.state.criterion = custom_loss
+trainer.state.step = step
+evaluator = Engine(evaluate_step)
+
+
+# Define event handlers
+@trainer.on(Events.EPOCH_COMPLETED)
+def log_training_loss(engine):
+    print(f"Epoch {engine.state.epoch}/{num_epochs}, Loss: {engine.state.output:.6f}")
+
 
 num_epochs = 1000
 losses = []  # To store the loss values for each epoch
+
+
+# Define score function for early stopping based on training loss
+def score_function(engine):
+    epoch_loss = engine.state.metrics['epoch_loss']
+    return -epoch_loss
+
+
+early_stopping = EarlyStopping(patience=5, score_function=lambda engine: -engine.state.metrics['validation_loss'],
+                               trainer=trainer)
+evaluator.add_event_handler(Events.COMPLETED, early_stopping)
 
 # TODO: Why is the loss 0.? Happened after adding more than one mu0_distributions.
 for mu0_samples in mu0_distributions:
     tpush_list = []  # Initialize a list to store tpush for the current mu0
     mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
+    trainer.state.mu0_tensor = mu0_tensor
     for epoch in range(num_epochs):
         losses_per_epoch = []  # to store average loss over all batches
         for batch_data in dataloader:
-            inputs = batch_data[0].clone().detach().requires_grad_(True)
-
-            tpush = model(inputs)
-            loss = custom_loss(tpush, mu0_tensor, inputs, step*100)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            losses_per_epoch.append(loss.item())
+            loss = train_step(model, optimizer, custom_loss, batch_data, mu0_tensor, step)
+            losses_per_epoch.append(loss)
 
         epoch_loss = np.mean(losses_per_epoch)
         losses.append(epoch_loss)
         print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss}')
 
+        # Check if early stopping criteria met
+        if early_stopping(engine):
+            print("Early stopping triggered.")
+            break
 
     # Store tpush for each mu0
     tpush_list.append(tpush.detach().numpy())
+
+trainer.run(dataloader, max_epochs=num_epochs)
+# evaluator.run(val_loader) need to add val_loader once I have a test set.
 
 # Plot the loss curve
 plt.plot(losses, label='Loss')
