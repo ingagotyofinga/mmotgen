@@ -9,13 +9,11 @@ import geomloss
 import matplotlib.pyplot as plt
 import time
 import random
-
-
+from data.simulate_data import DataSimulator
 
 start_time = time.time()
 # Set a seed for reproducibility
 torch.manual_seed(42)
-
 
 class OTMapNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
@@ -96,61 +94,14 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
     mapped_samples = mu_target + (sigma_target / sigma_source) * (source_samples - mu_source)
     return mapped_samples
 
-# SIMULATE DATA
+# # SIMULATE DATA
 # Number of distributions
 num_distributions = 100
 num_bins = 100
-
-# mu0_mean = torch.randn(1).item()
-# mu0_std = torch.abs(torch.randn(1)).item()
-# mu0 = torch.normal(mean=mu0_mean, std=mu0_std, size=(num_bins,))
-# mu0_samples = torch.abs(mu0_samples)
-# mu0 = mu0_samples / mu0_samples.sum()
-
-# plt.plot(mu0, np.zeros_like(mu0), 'x')
-
-# Lists to store source and target distributions
-mu_distributions = []
-nu_distributions = []
-
-for _ in range(num_distributions):
-    mu_mean = torch.randn(1).item()
-    mu_std = torch.abs(torch.randn(1)).item()
-    mu_samples = torch.normal(mean=mu_mean, std=mu_std, size=(num_bins,))
-    # mu_samples = torch.abs(mu_samples)
-    # mu_distribution = mu_samples / mu_samples.sum()
-    mu_distributions.append(mu_samples)
-    # plt.plot(mu_samples, np.zeros_like(mu0), 'x')
-
-    nu_mean = torch.randn(1).item()
-    nu_std = torch.abs(torch.randn(1)).item()
-    nu_samples = torch.normal(mean=nu_mean, std=nu_std, size=(num_bins,))
-    # nu_samples = torch.abs(nu_samples)
-    # nu_distribution = nu_samples / nu_samples.sum()
-    nu_distributions.append(nu_samples)
-    # plt.plot(nu_samples, np.zeros_like(mu0), 'x')
-source_dists = torch.stack(mu_distributions)
-target_dists = torch.stack(nu_distributions)
-input_data = torch.cat([torch.stack(mu_distributions).unsqueeze(1), torch.stack(nu_distributions).unsqueeze(1)], dim=1)
-input_data = input_data.view(num_distributions, -1, num_bins)
-
-# plt.title('Mu Distributions')
-# plt.show()
-
-source_min = torch.min(source_dists)
-source_range = np.abs(torch.max(source_dists) - source_min)
-num_mu0s = int(np.ceil(2 * source_range))
-step = source_range / num_mu0s  # this is going to act as the bandwidth for now (h)
-mu0_means = [source_min + k * step for k in range(int(num_mu0s))]
-mu0_std = torch.abs(step)
-
-mu0_distributions = []
-for i in range(num_mu0s):
-    mu0_samples = torch.normal(mean=mu0_means[i], std=mu0_std, size=(num_bins,))
-    mu0_distributions.append(mu0_samples)
-    plt.plot(mu0_samples, np.zeros_like(mu0_samples), 'x')
-
-plt.show()
+simulator = DataSimulator(num_distributions, num_bins)
+source_dists = simulator.simulate_mu()
+input_data = simulator.simulate_data()
+mu0_distributions, step = simulator.generate_mu0_distributions(source_dists)
 
 # Compute mapping using univariate optimal transport map
 transport_map = univar_gaussian_transport_map(input_data[1][0], input_data[1][1], mu_source=None, sigma_source=None,
@@ -175,10 +126,9 @@ learning_rate = 0.002  # Set your learning rate
 model = OTMapNN(input_size, hidden_size, output_size)
 optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
-num_epochs = 1000
+num_epochs = 5
 losses = []  # To store the loss values for each epoch
 
-# TODO: Why is the loss 0.? Happened after adding more than one mu0_distributions.
 for mu0_samples in mu0_distributions:
     tpush_list = []  # Initialize a list to store tpush for the current mu0
     mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
