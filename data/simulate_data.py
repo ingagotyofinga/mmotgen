@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 
 
 class DataSimulator:
-    def __init__(self, num_distributions, num_bins, num_dimensions):
+    def __init__(self, num_distributions, num_bins, num_dimensions, seed=None):
         self.num_distributions = num_distributions
         self.num_bins = num_bins
         self.num_dimensions = num_dimensions
-
+        self.seed = seed
     def simulate_mu(self):
         mu_distributions = []
         for _ in range(self.num_distributions):
@@ -34,6 +34,8 @@ class DataSimulator:
         return input_data
 
     def generate_random_data(self):
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
         source_dists = torch.rand(self.num_distributions, self.num_bins, self.num_dimensions)
         return source_dists
 
@@ -83,7 +85,8 @@ class DataSimulator:
 num_distributions = 100
 num_samples = 100
 num_dimensions = 3
-simulator = DataSimulator(num_distributions, num_samples, num_dimensions)
+seed = 42
+simulator = DataSimulator(num_distributions, num_samples, num_dimensions, seed)
 source_dists = simulator.generate_random_data()
 target_dists = simulator.generate_target_from_source(source_dists)
 
