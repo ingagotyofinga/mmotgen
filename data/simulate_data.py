@@ -74,20 +74,44 @@ class DataSimulator:
 
 
         return target_dists
+    # Below works the same as simulate_data, but you can input source and target
+    def generate_input_data(self, source, target):
+        return torch.cat([source.unsqueeze(1), target.unsqueeze(1)], dim=1)
 
     def generate_mu0_distributions(self, source_dists):
         source_min = torch.min(source_dists)
-        source_range = np.abs(torch.max(source_dists) - source_min)
-        num_mu0s = int(np.ceil(2 * source_range))
-        step = source_range / num_mu0s
-        mu0_means = [source_min + k * step for k in range(int(num_mu0s))]
-        mu0_std = torch.abs(step)
+        source_max = torch.max(source_dists)
+        source_range = np.abs(source_max - source_min)
+
+        num_mu0s = int(np.ceil(0.01 * source_range))
+        step = (source_range.item() / num_mu0s)/80
+        mu0_means_per_dim = [source_min + k * step for k in range(int(num_mu0s))]
+        mu0_means_per_dim = torch.stack(mu0_means_per_dim)
+        mu0_means_tuple = (mu0_means_per_dim,)*num_dimensions
+        mu0_means = torch.cartesian_prod(*mu0_means_tuple)
+        mu0_std = abs(step)
 
         mu0_distributions = []
-        for i in range(num_mu0s):
-            mu0_samples = torch.normal(mean=mu0_means[i], std=mu0_std, size=(self.num_bins,))
-            mu0_distributions.append(mu0_samples)
-            plt.plot(mu0_samples, np.zeros_like(mu0_samples), 'x')
+        for mean in mu0_means:
+            points = []
+            for i in mean:
+                dim_points = torch.normal(mean = i, std = mu0_std, size=(1,self.num_bins))
+                points.append(dim_points)
+            points = torch.cat(points,0)
+            points = points.transpose(0,1)
+            mu0_distributions.append(points)
+
+        mu0_distributions=torch.stack(mu0_distributions)
+        # for i in range(num_mu0s):
+        #     mu0_samples = torch.normal(mean=mu0_means[i], std=mu0_std, size=(self.num_bins,))
+        #     mu0_distributions.append(mu0_samples)
+            # plt.plot(mu0_samples, np.zeros_like(mu0_samples), 'x')
+        # mu0_distributions = torch.stack(mu0_distributions)
+        # mu0 = []
+        # for dist in mu0_distributions:
+        #     mu0_tuple = (dist,) * num_dimensions
+        #     mu0_list = torch.cartesian_prod(*mu0_tuple)
+        #     mu0.append(mu0_list)
 
         return mu0_distributions, step
 
@@ -112,17 +136,19 @@ std_devs = np.random.randint(low=1,high=50, size=(num_distributions, num_dimensi
 
 simulator = DataSimulator(num_distributions, num_samples, num_dimensions)
 source_dists = simulator.generate_source_data(means,std_devs)
-# TODO: scaling of the target data is off now
 target_dists = simulator.generate_target_data(source_dists)
+input_data = simulator.generate_input_data(source_dists,target_dists)
+mu_data,step = simulator.generate_mu0_distributions(source_dists)
 
 # Visualize the generated data
-# TODO: visualization script for the data
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
-for dist in range(len(source_dists)):
+for dist in range(len(mu_data)):
+    # ax.scatter(input_data[dist,:,:,0], input_data[dist,:,:,1], input_data[dist,:,:,2])
+    ax.scatter(mu_data[dist,:,0], mu_data[dist,:,1], mu_data[dist,:,2])
     # ax.scatter(source_dists[dist, :, 0], source_dists[dist, :, 1], source_dists[dist, :, 2], label='Source')
-    ax.scatter(target_dists[dist, :, 0], target_dists[dist, :, 1], target_dists[dist, :, 2], label='Target')
+    # ax.scatter(target_dists[dist, :, 0], target_dists[dist, :, 1], target_dists[dist, :, 2], label='Target')
 # ax.legend()
-plt.title("Sampled Target Distributions")
+plt.title("Sampled $\mu_0$ Distributions")
 plt.grid(True)
 plt.show()

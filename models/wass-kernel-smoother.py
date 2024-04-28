@@ -98,7 +98,8 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
 # Number of distributions
 num_distributions = 100
 num_bins = 100
-simulator = DataSimulator(num_distributions, num_bins)
+num_dimensions = 3
+simulator = DataSimulator(num_distributions, num_bins, num_dimensions)
 source_dists = simulator.simulate_mu()
 input_data = simulator.simulate_data()
 mu0_distributions, step = simulator.generate_mu0_distributions(source_dists)
