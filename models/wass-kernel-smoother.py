@@ -15,6 +15,7 @@ start_time = time.time()
 # Set a seed for reproducibility
 torch.manual_seed(42)
 
+# TODO: generalize for multi-variate distributions
 class OTMapNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(OTMapNN, self).__init__()
@@ -25,7 +26,7 @@ class OTMapNN(nn.Module):
     def forward(self, x):
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
-        return x[:, 1, :]
+        return x
 
 
 # this return makes sure the output has the right dimensions
@@ -33,10 +34,10 @@ class OTMapNN(nn.Module):
 
 def box_kernel(mu_0, mu_i, bandwidth):
     # Compute Wasserstein-2 distance between mu_0 and mu_i
-    input_data_sample = mu_i[0].unsqueeze(0)
-    mu_0_sample = mu_0.unsqueeze(0)
+    # input_data_sample = mu_i[0].unsqueeze(0)
+    # mu_0_sample = mu_0.unsqueeze(0)
     sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
-    wasserstein_distance = sink_loss(mu_0_sample, input_data_sample)
+    wasserstein_distance = sink_loss(mu_0, mu_i)
 
     # Check if the Wasserstein-2 distance is less than or equal to h
     indicator = torch.tensor(1.0) if wasserstein_distance <= bandwidth else torch.tensor(0.0)
@@ -48,16 +49,17 @@ def box_kernel(mu_0, mu_i, bandwidth):
 
 
 # Custom loss function incorporating Wasserstein-2 distance and kernel smoother
-def custom_loss(push, localdf, dists, bw):  # custom_loss(tpush, mu0, inputs, step)
+# TODO: loss functions script (how does it change when it's not univariate?)
+def custom_loss(push, localdf, source, target, bw):  # custom_loss(tpush, mu0, inputs, target_dists, step)
     # computes the loss locally
     # computes W2 distance between T_mu0#mu_i (tpush_i) and nu_i using sinkhorn divergence
     # blur param bw sinkhorn and kernel loss
     sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
-    wasserstein_distance = [sink_loss(push[i][1].view(1, -1, 1), dists[i][1].view(1, -1, 1)) for i in
+    wasserstein_distance = [sink_loss(push[i], target[i]) for i in
                             range(batch_size)]
     wasserstein_distance = torch.stack(wasserstein_distance)
     # Compute the kernel
-    kernel = [box_kernel(localdf, dists[i], bw) for i in range(batch_size)]
+    kernel = [box_kernel(localdf, source[i], bw) for i in range(batch_size)]
     kernel = torch.stack(kernel)
     # Combine the Wasserstein-2 distance and the kernel smoother term
     total_loss = torch.sum(
@@ -66,6 +68,7 @@ def custom_loss(push, localdf, dists, bw):  # custom_loss(tpush, mu0, inputs, st
     return total_loss
 
 
+# TODO: new model validation script
 def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None, sigma_source=None, mu_target=None,
                                   sigma_target=None):
     """
@@ -96,33 +99,58 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
 
 # # SIMULATE DATA
 # Number of distributions
-num_distributions = 100
-num_bins = 100
+num_distributions = 5
+num_bins = 10
 num_dimensions = 3
+
+# means and sds for source data
+means = np.random.randint(low=1,high=500, size=(num_distributions, num_dimensions))
+std_devs = np.random.randint(low=1,high=50, size=(num_distributions, num_dimensions))
+
+# generate data
 simulator = DataSimulator(num_distributions, num_bins, num_dimensions)
-source_dists = simulator.simulate_mu()
-input_data = simulator.simulate_data()
+source_dists = simulator.generate_source_data(means, std_devs)
+target_dists = simulator.generate_target_data(source_dists)
+input_data = simulator.generate_input_data(source_dists,target_dists)
 mu0_distributions, step = simulator.generate_mu0_distributions(source_dists)
 
+
+# Visualize the generated data
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+for dist in range(len(mu0_distributions)):
+    ax.scatter(mu0_distributions[dist,:,0], mu0_distributions[dist,:,1], mu0_distributions[dist,:,2], c='b')
+    # ax.scatter(source_dists[dist, :, 0], source_dists[dist, :, 1], source_dists[dist, :, 2], label='Source')
+    # ax.scatter(target_dists[dist, :, 0], target_dists[dist, :, 1], target_dists[dist, :, 2], label='Target')
+for dist in range(len(input_data)):
+    ax.scatter(source_dists[dist,:,0], source_dists[dist,:,1], source_dists[dist,:,2], c='r')
+ax.legend()
+# plt.title("Sampled $\mu_0$ Distributions")
+plt.grid(True)
+plt.show()
+
+
 # Compute mapping using univariate optimal transport map
-transport_map = univar_gaussian_transport_map(input_data[1][0], input_data[1][1], mu_source=None, sigma_source=None,
-                                              mu_target=None, sigma_target=None)
-sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
-true_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), transport_map.view(1, -1, 1))
+# TODO: notebook to report results
+# transport_map = univar_gaussian_transport_map(input_data[1][0], input_data[1][1], mu_source=None, sigma_source=None,
+#                                               mu_target=None, sigma_target=None)
+# sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
+# true_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), transport_map.view(1, -1, 1))
 
 # Create TensorDataset and DataLoader for batching
-dataset = TensorDataset(input_data)
-batch_size = 100  # Set your desired batch size
+dataset = TensorDataset(source_dists)
+batch_size = num_distributions  # Set your desired batch size
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 # plt.plot(input_data[0][0], np.zeros_like(mu0), 'x')
 # plt.plot(input_data[0][1], np.zeros_like(mu0), 'o')
 # plt.show()
 
-input_size = num_bins  # sample size of each distribution
+# TODO: do I have to consider the dimensions of the dists for input_size now, too?
+input_size = num_bins*num_dimensions # sample size of each distribution
 hidden_size = 32  # Set your hidden size
-output_size = num_bins  # Set your output size
-learning_rate = 0.002  # Set your learning rate
+output_size = num_bins*num_dimensions  # Set your output size
+learning_rate = 0.001  # Set your learning rate
 
 model = OTMapNN(input_size, hidden_size, output_size)
 optimizer = optim.SGD(model.parameters(), lr=learning_rate)
@@ -137,9 +165,12 @@ for mu0_samples in mu0_distributions:
         losses_per_epoch = []  # to store average loss over all batches
         for batch_data in dataloader:
             inputs = batch_data[0].clone().detach().requires_grad_(True)
+            inputs = inputs.view(num_distributions,-1)
 
             tpush = model(inputs)
-            loss = custom_loss(tpush, mu0_tensor, inputs, step*100)
+            tpush = tpush.view(num_distributions, num_bins, num_dimensions)
+            inputs = inputs.view(num_distributions, num_bins, num_dimensions)
+            loss = custom_loss(tpush, mu0_tensor, inputs, target_dists, step*10000)
 
             optimizer.zero_grad()
             loss.backward()
@@ -156,6 +187,7 @@ for mu0_samples in mu0_distributions:
     tpush_list.append(tpush.detach().numpy())
 
 # Plot the loss curve
+# TODO: notebook for results
 plt.plot(losses, label='Loss')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
@@ -190,10 +222,10 @@ sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
 true_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), transport_map.view(1, -1, 1))
 pred_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), tpush[1].view(1, -1, 1))
 print(f'True Loss: [{true_OTmap_loss}], Predicted Loss: {pred_OTmap_loss}')
-# end_time = time.time()
-#
-# # Calculate the elapsed time
-# elapsed_time = end_time - start_time
-#
-# # Print or use the elapsed time as needed
-# print(f"Program execution time: {elapsed_time} seconds")
+end_time = time.time()
+
+# Calculate the elapsed time
+elapsed_time = end_time - start_time
+
+# Print or use the elapsed time as needed
+print(f"Program execution time: {elapsed_time} seconds")

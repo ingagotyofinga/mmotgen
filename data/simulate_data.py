@@ -84,12 +84,12 @@ class DataSimulator:
         source_range = np.abs(source_max - source_min)
 
         num_mu0s = int(np.ceil(0.01 * source_range))
-        step = (source_range.item() / num_mu0s)/80
+        step = source_range.item() / num_mu0s
         mu0_means_per_dim = [source_min + k * step for k in range(int(num_mu0s))]
         mu0_means_per_dim = torch.stack(mu0_means_per_dim)
-        mu0_means_tuple = (mu0_means_per_dim,)*num_dimensions
+        mu0_means_tuple = (mu0_means_per_dim,)*self.num_dimensions
         mu0_means = torch.cartesian_prod(*mu0_means_tuple)
-        mu0_std = abs(step)
+        mu0_std = abs(step/2)
 
         mu0_distributions = []
         for mean in mu0_means:
@@ -125,30 +125,30 @@ class DataSimulator:
 
 
 # Example usage
-num_distributions = 10
-num_samples = 100
-num_dimensions = 3
+# num_distributions = 10
+# num_samples = 100
+# num_dimensions = 3
 
 # Means and standard deviations for each cluster in n-dimensional space
 # TODO: build these into the function for simulating data
-means = np.random.randint(low=1,high=500, size=(num_distributions, num_dimensions))
-std_devs = np.random.randint(low=1,high=50, size=(num_distributions, num_dimensions))
-
-simulator = DataSimulator(num_distributions, num_samples, num_dimensions)
-source_dists = simulator.generate_source_data(means,std_devs)
-target_dists = simulator.generate_target_data(source_dists)
-input_data = simulator.generate_input_data(source_dists,target_dists)
-mu_data,step = simulator.generate_mu0_distributions(source_dists)
+# means = np.random.randint(low=1,high=500, size=(num_distributions, num_dimensions))
+# std_devs = np.random.randint(low=1,high=50, size=(num_distributions, num_dimensions))
+#
+# simulator = DataSimulator(num_distributions, num_samples, num_dimensions)
+# source_dists = simulator.generate_source_data(means,std_devs)
+# target_dists = simulator.generate_target_data(source_dists)
+# input_data = simulator.generate_input_data(source_dists,target_dists)
+# mu_data,step = simulator.generate_mu0_distributions(source_dists)
 
 # Visualize the generated data
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-for dist in range(len(mu_data)):
-    # ax.scatter(input_data[dist,:,:,0], input_data[dist,:,:,1], input_data[dist,:,:,2])
-    ax.scatter(mu_data[dist,:,0], mu_data[dist,:,1], mu_data[dist,:,2])
-    # ax.scatter(source_dists[dist, :, 0], source_dists[dist, :, 1], source_dists[dist, :, 2], label='Source')
-    # ax.scatter(target_dists[dist, :, 0], target_dists[dist, :, 1], target_dists[dist, :, 2], label='Target')
-# ax.legend()
-plt.title("Sampled $\mu_0$ Distributions")
-plt.grid(True)
-plt.show()
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+# for dist in range(len(mu_data)):
+#     # ax.scatter(input_data[dist,:,:,0], input_data[dist,:,:,1], input_data[dist,:,:,2])
+#     ax.scatter(mu_data[dist,:,0], mu_data[dist,:,1], mu_data[dist,:,2])
+#     # ax.scatter(source_dists[dist, :, 0], source_dists[dist, :, 1], source_dists[dist, :, 2], label='Source')
+#     # ax.scatter(target_dists[dist, :, 0], target_dists[dist, :, 1], target_dists[dist, :, 2], label='Target')
+# # ax.legend()
+# plt.title("Sampled $\mu_0$ Distributions")
+# plt.grid(True)
+# plt.show()
