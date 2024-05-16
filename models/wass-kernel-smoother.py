@@ -10,12 +10,12 @@ import matplotlib.pyplot as plt
 import time
 import random
 from data.simulate_data import DataSimulator
+from visualization.visualization import DataVisualizer
 
 start_time = time.time()
 # Set a seed for reproducibility
 torch.manual_seed(42)
 
-# TODO: generalize for multi-variate distributions
 class OTMapNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(OTMapNN, self).__init__()
@@ -49,7 +49,6 @@ def box_kernel(mu_0, mu_i, bandwidth):
 
 
 # Custom loss function incorporating Wasserstein-2 distance and kernel smoother
-# TODO: loss functions script (how does it change when it's not univariate?)
 def custom_loss(push, localdf, source, target, bw):  # custom_loss(tpush, mu0, inputs, target_dists, step)
     # computes the loss locally
     # computes W2 distance between T_mu0#mu_i (tpush_i) and nu_i using sinkhorn divergence
@@ -99,8 +98,8 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
 
 # # SIMULATE DATA
 # Number of distributions
-num_distributions = 5
-num_bins = 10
+num_distributions = 3
+num_bins = 5
 num_dimensions = 3
 
 # means and sds for source data
@@ -116,18 +115,15 @@ mu0_distributions, step = simulator.generate_mu0_distributions(source_dists)
 
 
 # Visualize the generated data
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-for dist in range(len(mu0_distributions)):
-    ax.scatter(mu0_distributions[dist,:,0], mu0_distributions[dist,:,1], mu0_distributions[dist,:,2], c='b')
-    # ax.scatter(source_dists[dist, :, 0], source_dists[dist, :, 1], source_dists[dist, :, 2], label='Source')
-    # ax.scatter(target_dists[dist, :, 0], target_dists[dist, :, 1], target_dists[dist, :, 2], label='Target')
-for dist in range(len(input_data)):
-    ax.scatter(source_dists[dist,:,0], source_dists[dist,:,1], source_dists[dist,:,2], c='r')
-ax.legend()
-# plt.title("Sampled $\mu_0$ Distributions")
-plt.grid(True)
-plt.show()
+data = [source_dists, mu0_distributions]
+labels = ["Source", "$\mu_0$"]
+colors = ['blue', 'red']  # Color for each dataset
+
+# Create an instance of DataVisualizer
+visualizer = DataVisualizer(num_distributions, num_bins, num_dimensions)
+
+# Visualize the data
+visualizer.visualize(data, title="Randomly Generated Data", labels=labels, colors=colors)
 
 
 # Compute mapping using univariate optimal transport map
@@ -146,7 +142,6 @@ dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 # plt.plot(input_data[0][1], np.zeros_like(mu0), 'o')
 # plt.show()
 
-# TODO: do I have to consider the dimensions of the dists for input_size now, too?
 input_size = num_bins*num_dimensions # sample size of each distribution
 hidden_size = 32  # Set your hidden size
 output_size = num_bins*num_dimensions  # Set your output size
@@ -195,33 +190,37 @@ plt.title('Loss Over Epochs')
 plt.legend()
 plt.show()
 
-# Randomly select ten indices
-random_indices = random.sample(range(num_distributions), 10)
-
-# Convert tensors to NumPy arrays for plotting
-tpush_numpy = tpush.detach().numpy()
-input_data_numpy = input_data.detach().numpy()
-
 # Plotting
-for idx in random_indices:
-    plt.scatter(tpush_numpy[idx], torch.zeros_like(tpush[0]), label='Predicted Target Distribution Samples', marker='+')
-    plt.scatter(input_data_numpy[idx][1], torch.zeros_like(input_data[0][1]), label='True Target Samples', marker='x')
-    transport_map = univar_gaussian_transport_map(input_data[idx][0], input_data[idx][1], mu_source=None,
-                                                  sigma_source=None,
-                                                  mu_target=None, sigma_target=None)
-    plt.scatter(transport_map, torch.zeros_like(transport_map), label='Optimally Mapped Target Samples', marker='o')
-    # Show the plot
-    plt.xlabel('Samples')
-    plt.ylabel('Distribution')
-    plt.title('Target Samples')
-    plt.legend()
-    plt.show()
+
+data = [source_dists, tpush.detach().numpy()]
+labels = ["Actual", "Predicted"]
+colors = ['blue', 'red']  # Color for each dataset
+
+# Create an instance of DataVisualizer
+results = DataVisualizer(num_distributions, num_bins, num_dimensions)
+
+# Visualize the data
+results.visualize(data, title="Results", labels=labels, colors=colors)
+
+# for idx in random_indices:
+#     plt.scatter(tpush_numpy[idx], torch.zeros_like(tpush[0]), label='Predicted Target Distribution Samples', marker='+')
+#     plt.scatter(input_data_numpy[idx][1], torch.zeros_like(input_data[0][1]), label='True Target Samples', marker='x')
+#     transport_map = univar_gaussian_transport_map(input_data[idx][0], input_data[idx][1], mu_source=None,
+#                                                   sigma_source=None,
+#                                                   mu_target=None, sigma_target=None)
+#     plt.scatter(transport_map, torch.zeros_like(transport_map), label='Optimally Mapped Target Samples', marker='o')
+#     # Show the plot
+#     plt.xlabel('Samples')
+#     plt.ylabel('Distribution')
+#     plt.title('Target Samples')
+#     plt.legend()
+#     plt.show()
 
 # TODO: true_OTmap_loss & pred_OTmap_loss over all
-sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
-true_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), transport_map.view(1, -1, 1))
-pred_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), tpush[1].view(1, -1, 1))
-print(f'True Loss: [{true_OTmap_loss}], Predicted Loss: {pred_OTmap_loss}')
+# sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
+# true_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), transport_map.view(1, -1, 1))
+# pred_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), tpush[1].view(1, -1, 1))
+# print(f'True Loss: [{true_OTmap_loss}], Predicted Loss: {pred_OTmap_loss}')
 end_time = time.time()
 
 # Calculate the elapsed time
