@@ -152,9 +152,9 @@ optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
 num_epochs = 5
 losses = []  # To store the loss values for each epoch
+tpush_list = []  # Initialize a list to store tpush for the current mu0
 
 for mu0_samples in mu0_distributions:
-    tpush_list = []  # Initialize a list to store tpush for the current mu0
     mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
     for epoch in range(num_epochs):
         losses_per_epoch = []  # to store average loss over all batches
@@ -176,11 +176,10 @@ for mu0_samples in mu0_distributions:
         epoch_loss = np.mean(losses_per_epoch)
         losses.append(epoch_loss)
         print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss}')
-
-
-    # Store tpush for each mu0
     tpush_list.append(tpush.detach().numpy())
 
+tpush_list = np.array(tpush_list)
+tpush_list = torch.tensor(tpush_list)
 # Plot the loss curve
 # TODO: notebook for results
 plt.plot(losses, label='Loss')
@@ -192,9 +191,9 @@ plt.show()
 
 # Plotting
 
-data = [source_dists, tpush.detach().numpy()]
-labels = ["Actual", "Predicted"]
-colors = ['blue', 'red']  # Color for each dataset
+data = [source_dists, target_dists, tpush_list]
+labels = ["Source", "Target", "Predicted"]
+colors = ['blue', 'green', 'red']  # Color for each dataset
 
 # Create an instance of DataVisualizer
 results = DataVisualizer(num_distributions, num_bins, num_dimensions)
