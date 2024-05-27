@@ -98,9 +98,9 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
 
 # # SIMULATE DATA
 # Number of distributions
-num_distributions = 3
-num_bins = 5
-num_dimensions = 3
+num_distributions = 10
+num_bins = 100
+num_dimensions = 2
 
 # means and sds for source data
 means = np.random.randint(low=1,high=500, size=(num_distributions, num_dimensions))
@@ -145,12 +145,12 @@ dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 input_size = num_bins*num_dimensions # sample size of each distribution
 hidden_size = 32  # Set your hidden size
 output_size = num_bins*num_dimensions  # Set your output size
-learning_rate = 0.001  # Set your learning rate
+learning_rate = 0.0001  # Set your learning rate
 
 model = OTMapNN(input_size, hidden_size, output_size)
 optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
-num_epochs = 5
+num_epochs = 50
 losses = []  # To store the loss values for each epoch
 tpush_list = []  # Initialize a list to store tpush for the current mu0
 
@@ -165,7 +165,7 @@ for mu0_samples in mu0_distributions:
             tpush = model(inputs)
             tpush = tpush.view(num_distributions, num_bins, num_dimensions)
             inputs = inputs.view(num_distributions, num_bins, num_dimensions)
-            loss = custom_loss(tpush, mu0_tensor, inputs, target_dists, step*10000)
+            loss = custom_loss(tpush, mu0_tensor, inputs, target_dists, step)
 
             optimizer.zero_grad()
             loss.backward()
