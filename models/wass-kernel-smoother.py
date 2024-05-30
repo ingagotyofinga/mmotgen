@@ -8,6 +8,7 @@ import numpy as np
 import geomloss
 import matplotlib.pyplot as plt
 import time
+import math
 import random
 from data.simulate_data import DataSimulator
 from visualization.visualization import DataVisualizer
@@ -49,11 +50,11 @@ def box_kernel(mu_0, mu_i, bandwidth):
 
 
 # Custom loss function incorporating Wasserstein-2 distance and kernel smoother
-def custom_loss(push, localdf, source, target, bw):  # custom_loss(tpush, mu0, inputs, target_dists, step)
+def custom_loss(push, localdf, source, target, bw, blur=0.05, p=2 ):  # custom_loss(tpush, mu0, inputs, target_dists, step)
     # computes the loss locally
     # computes W2 distance between T_mu0#mu_i (tpush_i) and nu_i using sinkhorn divergence
     # blur param bw sinkhorn and kernel loss
-    sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
+    sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=p, blur=blur)
     wasserstein_distance = [sink_loss(push[i], target[i]) for i in
                             range(batch_size)]
     wasserstein_distance = torch.stack(wasserstein_distance)
@@ -98,7 +99,7 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
 
 # # SIMULATE DATA
 # Number of distributions
-num_distributions = 10
+num_distributions = 1000
 num_bins = 100
 num_dimensions = 2
 
@@ -134,10 +135,22 @@ visualizer.visualize(data, title="Randomly Generated Data", labels=labels, color
 # true_OTmap_loss = sink_loss(input_data[1][1].view(1, -1, 1), transport_map.view(1, -1, 1))
 
 # Create TensorDataset and DataLoader for batching
-dataset = TensorDataset(source_dists)
-batch_size = num_distributions  # Set your desired batch size
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+source_dists_flat = source_dists.view(num_distributions, -1)
+target_dists_flat = target_dists.view(num_distributions, -1)
 
+# Split the data into training and test sets
+source_train, source_test, target_train, target_test = train_test_split(
+    source_dists_flat, target_dists_flat, test_size=0.2, random_state=42
+)
+
+# Create TensorDataset and DataLoader for training and test sets
+train_dataset = TensorDataset(source_train, target_train)
+test_dataset = TensorDataset(source_test, target_test)
+
+batch_size = 32  # Set your desired batch size
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 # plt.plot(input_data[0][0], np.zeros_like(mu0), 'x')
 # plt.plot(input_data[0][1], np.zeros_like(mu0), 'o')
 # plt.show()
@@ -145,38 +158,58 @@ dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 input_size = num_bins*num_dimensions # sample size of each distribution
 hidden_size = 32  # Set your hidden size
 output_size = num_bins*num_dimensions  # Set your output size
-learning_rate = 0.0001  # Set your learning rate
+learning_rate = 0.01  # Set your learning rate
 
 model = OTMapNN(input_size, hidden_size, output_size)
 optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
-num_epochs = 50
-losses = []  # To store the loss values for each epoch
-tpush_list = []  # Initialize a list to store tpush for the current mu0
+# blur_values = [0.01, 0.05, 0.1]
+blur_values = [0.01]
+p_values = [1]
 
-for mu0_samples in mu0_distributions:
-    mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
-    for epoch in range(num_epochs):
-        losses_per_epoch = []  # to store average loss over all batches
-        for batch_data in dataloader:
-            inputs = batch_data[0].clone().detach().requires_grad_(True)
-            inputs = inputs.view(num_distributions,-1)
+best_loss = float('inf')
+best_params = {}
 
-            tpush = model(inputs)
-            tpush = tpush.view(num_distributions, num_bins, num_dimensions)
-            inputs = inputs.view(num_distributions, num_bins, num_dimensions)
-            loss = custom_loss(tpush, mu0_tensor, inputs, target_dists, step)
+num_epochs = 10
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
 
-            losses_per_epoch.append(loss.item())
+for blur in blur_values:
+    for p in p_values:
+        print(f"Testing blur={blur}, p={p}")
+        train_losses = []
+        test_losses = [] # To store the loss values for each epoch
+        tpush_list = []  # Initialize a list to store tpush for the current mu0
+        for mu0_samples in mu0_distributions:
+            mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
+            for epoch in range(num_epochs):
+                model.train()
+                epoch_train_loss = []               # to store average loss over all batches
+                for source_batch, target_batch in train_loader:
+                    source_batch = source_batch.clone().detach().requires_grad_(True)
+                    source_batch = source_batch.view(batch_size, -1)
+                    target_batch = target_batch.view(batch_size, num_bins, num_dimensions)
 
-        epoch_loss = np.mean(losses_per_epoch)
-        losses.append(epoch_loss)
-        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss}')
-    tpush_list.append(tpush.detach().numpy())
+                    tpush = model(source_batch)
+                    tpush = tpush.view(batch_size, num_bins, num_dimensions)
+                    source_batch = source_batch.view(batch_size, num_bins, num_dimensions)
+
+                    loss = custom_loss(tpush, mu0_tensor, source_batch, target_batch, step, blur, p)
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+                    epoch_train_loss.append(loss.item())
+
+                train_loss = np.mean(epoch_train_loss)
+                train_losses.append(train_loss)
+                print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {train_loss}')
+            tpush_list.append(tpush.detach().numpy())
+
+        avg_loss = np.mean(losses)
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            best_params = {'blur': blur, 'p': p}
 
 tpush_list = np.array(tpush_list)
 tpush_list = torch.tensor(tpush_list)
