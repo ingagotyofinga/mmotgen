@@ -99,7 +99,7 @@ def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None
 
 # # SIMULATE DATA
 # Number of distributions
-num_distributions = 1000
+num_distributions = 100
 num_bins = 100
 num_dimensions = 2
 
@@ -137,20 +137,10 @@ visualizer.visualize(data, title="Randomly Generated Data", labels=labels, color
 # Create TensorDataset and DataLoader for batching
 source_dists_flat = source_dists.view(num_distributions, -1)
 target_dists_flat = target_dists.view(num_distributions, -1)
+dataset = TensorDataset(source_dists_flat, target_dists_flat)
+batch_size = math.ceil(num_distributions*0.05)  # Set your desired batch size
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-# Split the data into training and test sets
-source_train, source_test, target_train, target_test = train_test_split(
-    source_dists_flat, target_dists_flat, test_size=0.2, random_state=42
-)
-
-# Create TensorDataset and DataLoader for training and test sets
-train_dataset = TensorDataset(source_train, target_train)
-test_dataset = TensorDataset(source_test, target_test)
-
-batch_size = 32  # Set your desired batch size
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 # plt.plot(input_data[0][0], np.zeros_like(mu0), 'x')
 # plt.plot(input_data[0][1], np.zeros_like(mu0), 'o')
 # plt.show()
@@ -172,19 +162,17 @@ best_params = {}
 
 num_epochs = 10
 
-
 for blur in blur_values:
     for p in p_values:
         print(f"Testing blur={blur}, p={p}")
-        train_losses = []
-        test_losses = [] # To store the loss values for each epoch
+        losses = []  # To store the loss values for each epoch
         tpush_list = []  # Initialize a list to store tpush for the current mu0
         for mu0_samples in mu0_distributions:
             mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
             for epoch in range(num_epochs):
-                model.train()
-                epoch_train_loss = []               # to store average loss over all batches
-                for source_batch, target_batch in train_loader:
+                losses_per_epoch = []  # to store average loss over all batches
+                for batch_data in dataloader:
+                    source_batch, target_batch = batch_data
                     source_batch = source_batch.clone().detach().requires_grad_(True)
                     source_batch = source_batch.view(batch_size, -1)
                     target_batch = target_batch.view(batch_size, num_bins, num_dimensions)
@@ -199,11 +187,11 @@ for blur in blur_values:
                     loss.backward()
                     optimizer.step()
 
-                    epoch_train_loss.append(loss.item())
+                    losses_per_epoch.append(loss.item())
 
-                train_loss = np.mean(epoch_train_loss)
-                train_losses.append(train_loss)
-                print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {train_loss}')
+                epoch_loss = np.mean(losses_per_epoch)
+                losses.append(epoch_loss)
+                print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss}')
             tpush_list.append(tpush.detach().numpy())
 
         avg_loss = np.mean(losses)
