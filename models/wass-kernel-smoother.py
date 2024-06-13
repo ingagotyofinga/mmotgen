@@ -159,7 +159,6 @@ input_size = num_bins*num_dimensions # sample size of each distribution
 hidden_size = 32  # Set your hidden size
 output_size = num_bins*num_dimensions  # Set your output size
 learning_rate = 0.01  # Set your learning rate
-num_epochs = 10
 
 # model = OTMapNN(input_size, hidden_size, output_size)
 # optimizer = optim.SGD(model.parameters(), lr=learning_rate)
@@ -263,15 +262,7 @@ for blur in blur_values:
             best_loss = avg_loss
             best_params = {'blur': blur, 'p': p}
 
-# Plot the loss curve
 # TODO: notebook for results
-plt.plot(losses, label='Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Loss Over Epochs')
-plt.legend()
-plt.show()
-
 # Plot the loss curves for each mu0_samples
 for i, train_losses in enumerate(all_train_losses):
     plt.plot(train_losses, label=f'Train Loss {i}')
@@ -290,8 +281,7 @@ plt.show()
 
 # Plotting
 # TODO: fix the plots with the updated model outputs
-
-data = [source_dists, target_dists, combined_predictions]
+data = [source_dists, target_dists, combined_predictions.detach().numpy()]
 labels = ["Source", "Target", "Predicted"]
 colors = ['blue', 'green', 'red']  # Color for each dataset
 
