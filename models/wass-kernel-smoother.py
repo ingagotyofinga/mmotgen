@@ -2,16 +2,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
-import torch.nn.functional as F
-from sklearn.model_selection import train_test_split
 import numpy as np
 import geomloss
 import matplotlib.pyplot as plt
 import time
 import math
 import random
+from sklearn.model_selection import train_test_split
 from data.simulate_data import DataSimulator
 from visualization.visualization import DataVisualizer
+from multiprocessing import Pool, cpu_count
 
 start_time = time.time()
 torch.manual_seed(42)
@@ -98,158 +98,169 @@ p_values = [1]
 
 best_loss = float('inf')
 best_params = {}
-num_epochs = 10
+num_epochs = 50  # Initial reasonable number of epochs
+patience = 10  # Early stopping patience
 
-for blur in blur_values:
-    for p in p_values:
-        print(f"Testing blur={blur}, p={p}")
-        all_train_losses = []
-        all_test_losses = []
-        all_predictions = []
-        losses = []
+def train_model(args):
+    idx, blur, p = args
+    mu0_samples = mu0_distributions[idx]
+    mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
+    model = OTMapNN(input_size, hidden_size, output_size)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # Changed to Adam optimizer
 
-        models_and_optimizers = {}
+    train_losses = []
+    best_val_loss = float('inf')
+    patience_counter = 0
 
-        for idx, mu0_samples in enumerate(mu0_distributions):
-            print(f'Training model for mu0_samples index: {idx}')
-            mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
-            model = OTMapNN(input_size, hidden_size, output_size)
-            optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # Changed to Adam optimizer
-            models_and_optimizers[idx] = (model, optimizer)
+    for epoch in range(num_epochs):
+        model.train()
+        epoch_train_loss = []
 
-            train_losses = []
-            for epoch in range(num_epochs):
-                model.train()
-                epoch_train_loss = []
+        for source_batch, target_batch in train_loader:
+            source_batch = source_batch.clone().detach().requires_grad_(True)
+            source_batch = source_batch.view(batch_size, -1)
+            target_batch = target_batch.view(batch_size, num_bins, num_dimensions)
 
-                for source_batch, target_batch in train_loader:
-                    source_batch = source_batch.clone().detach().requires_grad_(True)
-                    source_batch = source_batch.view(batch_size, -1)
-                    target_batch = target_batch.view(batch_size, num_bins, num_dimensions)
+            tpush = model(source_batch)
+            tpush = tpush.view(batch_size, num_bins, num_dimensions)
+            source_batch = source_batch.view(batch_size, num_bins, num_dimensions)
 
-                    tpush = model(source_batch)
-                    tpush = tpush.view(batch_size, num_bins, num_dimensions)
-                    source_batch = source_batch.view(batch_size, num_bins, num_dimensions)
+            loss = custom_loss(tpush, mu0_tensor, source_batch, target_batch, step, blur, p, batch_size)
 
-                    loss = custom_loss(tpush, mu0_tensor, source_batch, target_batch, step, blur, p, batch_size)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
+            epoch_train_loss.append(loss.item())
 
-                    epoch_train_loss.append(loss.item())
+        train_loss = np.mean(epoch_train_loss)
+        train_losses.append(train_loss)
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss}')
 
-                train_loss = np.mean(epoch_train_loss)
-                train_losses.append(train_loss)
-                print(f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss}')
+        # Early stopping check
+        model.eval()
+        val_loss = []
+        with torch.no_grad():
+            for source_batch, target_batch in test_loader:
+                source_batch = source_batch.view(batch_size, -1)
+                target_batch = target_batch.view(batch_size, num_bins, num_dimensions)
 
-            all_train_losses.append(train_losses)
+                tpush = model(source_batch)
+                tpush = tpush.view(batch_size, num_bins, num_dimensions)
+                source_batch = source_batch.view(batch_size, num_bins, num_dimensions)
 
-        for idx, mu0_samples in enumerate(mu0_distributions):
-            print(f'Evaluating model for mu0_samples index: {idx}')
-            mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
-            model, _ = models_and_optimizers[idx]
-            model.eval()
-            epoch_test_loss = []
-            predictions = []
+                loss = custom_loss(tpush, mu0_tensor, source_batch, target_batch, step, blur, p, batch_size)
+                val_loss.append(loss.item())
 
-            with torch.no_grad():
-                for source_batch, target_batch in test_loader:
-                    source_batch = source_batch.view(batch_size, -1)
-                    target_batch = target_batch.view(batch_size, num_bins, num_dimensions)
+        avg_val_loss = np.mean(val_loss)
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
 
-                    tpush = model(source_batch)
-                    tpush = tpush.view(batch_size, num_bins, num_dimensions)
-                    source_batch = source_batch.view(batch_size, num_bins, num_dimensions)
-                    predictions.append(tpush)
+        if patience_counter >= patience:
+            print(f"Early stopping at epoch {epoch + 1}")
+            break
 
-                    loss = custom_loss(tpush, mu0_tensor, source_batch, target_batch, step, blur, p, batch_size)
-                    epoch_test_loss.append(loss.item())
+    # Evaluate model
+    model.eval()
+    epoch_test_loss = []
+    predictions = []
 
-            test_loss = np.mean(epoch_test_loss)
-            all_test_losses.append(test_loss)
-            all_predictions.append(torch.cat(predictions, dim=0))
+    with torch.no_grad():
+        for source_batch, target_batch in test_loader:
+            source_batch = source_batch.view(batch_size, -1)
+            target_batch = target_batch.view(batch_size, num_bins, num_dimensions)
 
-            print(f'Test Loss for model {idx}: {test_loss}')
+            tpush = model(source_batch)
+            tpush = tpush.view(batch_size, num_bins, num_dimensions)
+            source_batch = source_batch.view(batch_size, num_bins, num_dimensions)
+            predictions.append(tpush)
 
-        combined_predictions = torch.cat(all_predictions, dim=0)
-        combined_predictions = combined_predictions.view(-1, num_bins, num_dimensions)
+            loss = custom_loss(tpush, mu0_tensor, source_batch, target_batch, step, blur, p, batch_size)
+            epoch_test_loss.append(loss.item())
 
-        avg_loss = np.mean(losses)
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            best_params = {'blur': blur, 'p': p}
+    test_loss = np.mean(epoch_test_loss)
+    predictions = torch.cat(predictions, dim=0)
 
-for i, train_losses in enumerate(all_train_losses):
-    plt.plot(train_losses, label=f'Train Loss {i}')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Train Loss Over Epochs')
-plt.legend()
-plt.show()
+    print(f'Test Loss for model {idx}: {test_loss}')
 
-plt.figure()
-plt.bar(range(len(all_test_losses)), all_test_losses)
-plt.xlabel('Model Index')
-plt.ylabel('Test Loss')
-plt.title('Test Loss for Each Model')
-plt.show()
+    return train_losses, test_loss, predictions
 
-data = [target_dists, combined_predictions.detach().numpy()]
-labels = ["Target", "Predicted"]
-colors = ['green', 'red']
+if __name__ == "__main__":
+    for blur in blur_values:
+        for p in p_values:
+            print(f"Testing blur={blur}, p={p}")
+            all_train_losses = []
+            all_test_losses = []
+            all_predictions = []
+            losses = []
 
-results = DataVisualizer(num_distributions, num_bins, num_dimensions)
-results.visualize(data, title="Results", labels=labels, colors=colors)
+            # with Pool(processes=cpu_count()) as pool:
+            #     results = pool.map(train_model, [(i, blur, p) for i in range(len(mu0_distributions))])
+            results = [train_model(i, blur, p) for i in range(len(mu0_distributions))]  # Single process
 
-# Select a subset of distributions to plot
-num_samples_to_plot = 5
-sample_indices = random.sample(range(num_distributions), num_samples_to_plot)
+        for train_losses, test_loss, predictions in results:
+                all_train_losses.append(train_losses)
+                all_test_losses.append(test_loss)
+                all_predictions.append(predictions)
 
-# Prepare data for visualization
-selected_target_dists = target_dists[sample_indices]
-selected_predictions = combined_predictions[sample_indices].detach().numpy()
+            combined_predictions = torch.cat(all_predictions, dim=0)
+            combined_predictions = combined_predictions.view(-1, num_bins, num_dimensions)
 
-# Define colors for each pair of distributions
-colors = ['red', 'blue', 'green', 'orange', 'purple']
+            avg_loss = np.mean(losses)
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                best_params = {'blur': blur, 'p': p}
 
-# Plot the selected distributions
-plt.figure(figsize=(12, 8))
-for i in range(num_samples_to_plot):
-    plt.plot(selected_target_dists[i].flatten(), color=colors[i], label=f'Target {sample_indices[i]}')
-    plt.plot(selected_predictions[i].flatten(), linestyle='--', color=colors[i], label=f'Predicted {sample_indices[i]}')
+    for i, train_losses in enumerate(all_train_losses):
+        plt.plot(train_losses)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Train Loss Over Epochs')
+    plt.legend()
+    plt.show()
 
-plt.xlabel('Bins')
-plt.ylabel('Values')
-plt.title('Comparison of Selected True and Predicted Distributions')
-plt.legend()
-plt.show()
+    plt.figure()
+    plt.bar(range(len(all_test_losses)), all_test_losses)
+    plt.xlabel('Model Index')
+    plt.ylabel('Test Loss')
+    plt.title('Test Loss for Each Model')
+    plt.show()
 
-# Select a subset of distributions to plot
-num_samples_to_plot = 5
-sample_indices = random.sample(range(num_distributions), num_samples_to_plot)
+    data = [target_dists, combined_predictions.detach().numpy()]
+    labels = ["Target", "Predicted"]
+    colors = ['green', 'red']
 
-# Prepare data for visualization
-selected_target_dists = target_dists[sample_indices]
-selected_predictions = combined_predictions[sample_indices].detach().numpy()
+    results = DataVisualizer(num_distributions, num_bins, num_dimensions)
+    results.visualize(data, title="Results", labels=labels, colors=colors)
 
-# Define colors for each pair of distributions
-colors = ['red', 'blue', 'green', 'orange', 'purple']
-light_colors = ['#ff9999', '#99ccff', '#99ff99', '#ffcc99', '#cc99ff']
-data = [selected_target_dists,selected_predictions]
+    # Select a subset of distributions to plot
+    num_samples_to_plot = 5
+    sample_indices = random.sample(range(num_distributions), num_samples_to_plot)
 
-# Plot the selected distributions
-plt.figure(figsize=(12, 8))
-for i in range(num_samples_to_plot):
-    plt.scatter(selected_target_dists[i][:, 0], selected_target_dists[i][:, 1], color=colors[i], label=f'Target {sample_indices[i]}')
-    plt.scatter(selected_predictions[i][:, 0], selected_predictions[i][:, 1], color=light_colors[i], label=f'Predicted {sample_indices[i]}', marker='x')
+    # Prepare data for visualization
+    selected_target_dists = target_dists[sample_indices]
+    selected_predictions = combined_predictions[sample_indices].detach().numpy()
 
-plt.xlabel('Dimension 1')
-plt.ylabel('Dimension 2')
-plt.title('Comparison of Selected True and Predicted Distributions (2D Point Clouds)')
-plt.legend()
-plt.show()
+    # Define colors for each pair of distributions
+    colors = ['red', 'blue', 'green', 'orange', 'purple']
+    light_colors = ['#ff9999', '#99ccff', '#99ff99', '#ffcc99', '#cc99ff']
+    data = [selected_target_dists, selected_predictions]
 
-end_time = time.time()
-elapsed_time = end_time - start_time
-print(f"Program execution time: {elapsed_time} seconds")
+    # Plot the selected distributions
+    plt.figure(figsize=(12, 8))
+    for i in range(num_samples_to_plot):
+        plt.scatter(selected_target_dists[i][:, 0], selected_target_dists[i][:, 1], color=colors[i], label=f'Target {sample_indices[i]}')
+        plt.scatter(selected_predictions[i][:, 0], selected_predictions[i][:, 1], color=light_colors[i], label=f'Predicted {sample_indices[i]}', marker='x')
+
+    plt.xlabel('Dimension 1')
+    plt.ylabel('Dimension 2')
+    plt.title('Comparison of Selected True and Predicted Distributions (2D Point Clouds)')
+    plt.legend()
+    plt.show()
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Program execution time: {elapsed_time} seconds")
