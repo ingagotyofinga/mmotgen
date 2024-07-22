@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from data.simulate_data import DataSimulator
+from data.simulate_data_old import DataSimulatorOld
 from mpl_toolkits.mplot3d import Axes3D
 
 class DataVisualizer:

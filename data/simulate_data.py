@@ -4,176 +4,133 @@ import matplotlib.pyplot as plt
 
 
 class DataSimulator:
-    def __init__(self, num_distributions, num_bins, num_dimensions, seed=None):
+    def __init__(self, num_distributions, num_samples, source_means, target_means, covariances, seed=None):
         self.num_distributions = num_distributions
-        self.num_bins = num_bins
-        self.num_dimensions = num_dimensions
+        self.num_samples = num_samples
+        self.source_means = torch.tensor(source_means, dtype=torch.float32)
+        self.target_means = torch.tensor(target_means, dtype=torch.float32)
+        self.covariances = torch.tensor(covariances, dtype=torch.float32)
         self.seed = seed
+        self.data = []
+        self.target_data = []
 
-    def simulate_mu(self):
-        mu_distributions = []
-        for _ in range(self.num_distributions):
-            mu_mean = torch.randn(1).item()
-            mu_std = torch.abs(torch.randn(1)).item()
-            mu_samples = torch.normal(mean=mu_mean, std=mu_std, size=(self.num_bins,))
-            mu_distributions.append(mu_samples)
-        return torch.stack(mu_distributions)
+    def generate_data(self, source_means_std):
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
+        self.data = []
 
-    def simulate_nu(self):
-        nu_distributions = []
-        for _ in range(self.num_distributions):
-            nu_mean = torch.randn(1).item()
-            nu_std = torch.abs(torch.randn(1)).item()
-            nu_samples = torch.normal(mean=nu_mean, std=nu_std, size=(self.num_bins,))
-            nu_distributions.append(nu_samples)
-        return torch.stack(nu_distributions)
+        # Add randomness to source means
+        source_means_with_noise = self.add_randomness_to_means(self.source_means, source_means_std)
 
-    def simulate_data(self):
-        source_dists = self.simulate_mu()
-        target_dists = self.simulate_nu()
-        input_data = torch.cat([source_dists.unsqueeze(1), target_dists.unsqueeze(1)], dim=1)
-        return input_data
+        for i in range(self.num_distributions):
+            mean = source_means_with_noise[i]
+            cov = self.covariances[i]
+            samples = torch.distributions.MultivariateNormal(mean, cov).sample((self.num_samples,))
+            self.data.append(samples)
+        self.data = torch.stack(self.data)
 
-    def generate_source_data(self, means, std_devs):
-        """
-         Generate source data given means and standard deviations for each dimension.
+    def add_randomness_to_means(self, means, std_dev):
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
+        random_perturbation = torch.normal(0, std_dev, means.shape)
+        return means + random_perturbation
 
-         Parameters:
-         means (list of list of float): Means for each dimension.
-         std_devs (list of list of float): Standard deviations for each dimension.
+    def generate_target_data(self, source_means_std, target_means_std):
+        source_means_with_noise = self.add_randomness_to_means(self.source_means, source_means_std)
+        target_means_with_noise = self.add_randomness_to_means(self.target_means, target_means_std)
+        self.target_data = []
 
-         Returns:
-         torch.Tensor: Standardized source distributions.
-         """
-        dists = []
-        for mean, std_dev in zip(means, std_devs):
-            points = []
-            for i, j in zip(mean, std_dev):
-                dim_points = torch.normal(i, j, size=(1, self.num_bins))
-                points.append(dim_points)
-            points = torch.cat(points, 0)
-            points = points.transpose(0, 1)
-            dists.append(points)
+        for i in range(self.num_distributions):
+            source_data = self.data[i]
+            target_data = (source_data - source_means_with_noise[i]) + target_means_with_noise[i]
+            self.target_data.append(target_data)
 
-        source_dists = torch.stack(dists)
-        # Standardize source_dists
-        source_dists = self._standardize(source_dists)
-        return source_dists
+        self.target_data = torch.stack(self.target_data)
+        return self.target_data
 
-    def generate_target_data(self, source_dists):
-        """
-        Generate target data by applying an affine and random map to the source data.
+    def generate_input_data(self):
+        return torch.cat([self.data.unsqueeze(1), self.target_data.unsqueeze(1)], dim=1)
 
-        Parameters:
-        source_dists (torch.Tensor): Source distributions.
+    def generate_mu0_distributions(self):
+        source_min = torch.min(self.data)
+        source_max = torch.max(self.data)
+        source_range = torch.abs(source_max - source_min)
 
-        Returns:
-        torch.Tensor: Standardized target distributions.
-        """
-
-        # Generate an affine map
-        affine_map = torch.randn(self.num_bins, self.num_bins)
-        affine_translation = torch.randn(self.num_bins, self.num_dimensions)
-
-        # Generate a random map
-        random_map = torch.randn(self.num_bins, self.num_bins)
-        random_translation = torch.randn(self.num_bins, self.num_dimensions)
-
-        # Compose the affine map and the random map
-        composed_map = torch.matmul(random_map, affine_map)
-        composed_translation = torch.matmul(random_map, affine_translation) + random_translation
-
-        # Standardize composed_map
-        mean_map = composed_map.mean(dim=0)
-        std_map = composed_map.std(dim=0)
-        standardized_composed_map = (composed_map - mean_map) / std_map
-
-        # Standardize composed_translation
-        mean_translation = composed_translation.mean(dim=0)
-        std_translation = composed_translation.std(dim=0)
-        standardized_composed_translation = (composed_translation - mean_translation) / std_translation
-
-        # Apply the composed map to the source to generate the target
-        target_dists = torch.matmul(standardized_composed_map, source_dists) + standardized_composed_translation
-
-        # Standardize target_dists
-        target_dists = self._standardize(target_dists)
-
-        return target_dists
-
-    def _standardize(self, data):
-        mean = data.mean(dim=0, keepdim=True)
-        std = data.std(dim=0, keepdim=True)
-        standardized_data = (data - mean) / std
-        return standardized_data
-
-    def generate_input_data(self, source, target):
-        return torch.cat([source.unsqueeze(1), target.unsqueeze(1)], dim=1)
-
-    def generate_mu0_distributions(self, source_dists):
-        source_min = torch.min(source_dists)
-        source_max = torch.max(source_dists)
-        source_range = np.abs(source_max - source_min)
-
-        num_mu0s = int(np.ceil(source_range))
+        num_mu0s = int(torch.ceil(source_range / 2))
         step = source_range.item() / num_mu0s
         mu0_means_per_dim = [source_min + k * step for k in range(int(num_mu0s))]
         mu0_means_per_dim = torch.stack(mu0_means_per_dim)
-        mu0_means_tuple = (mu0_means_per_dim,) * self.num_dimensions
+        mu0_means_tuple = (mu0_means_per_dim,) * self.source_means.shape[1]
         mu0_means = torch.cartesian_prod(*mu0_means_tuple)
-        mu0_std = abs(step / 2)
+        mu0_std = abs(step)
 
         mu0_distributions = []
+        cov = torch.eye(self.source_means.shape[1]) * mu0_std  # Assuming the same covariance structure for all
+
         for mean in mu0_means:
-            points = []
-            for i in mean:
-                dim_points = torch.normal(mean=i, std=mu0_std, size=(1, self.num_bins))
-                points.append(dim_points)
-            points = torch.cat(points, 0)
-            points = points.transpose(0, 1)
-            mu0_distributions.append(points)
+            if mean.dim() == 0:  # Ensure mean is at least 1-dimensional
+                mean = mean.unsqueeze(0)
+            distribution = torch.distributions.MultivariateNormal(mean, cov)
+            samples = distribution.sample((self.num_samples,))
+            mu0_distributions.append(samples)
 
         mu0_distributions = torch.stack(mu0_distributions)
-        mu0_distributions = self._standardize(mu0_distributions)
         return mu0_distributions, step
 
-    def plot_distributions(self, distributions):
-        num_plots = distributions.shape[0]
-        fig, axs = plt.subplots(num_plots, figsize=(8, 4 * num_plots))
-        for i in range(num_plots):
-            axs[i].plot(distributions[i], np.zeros_like(distributions[i]), 'x')
-            axs[i].set_title(f'Distribution {i + 1}')
+    def plot_data(self, data, title):
+        plt.figure(figsize=(12, 6))
+        for i in range(self.num_distributions):
+            plt.hist(data[i].numpy(), bins=10, alpha=0.5, edgecolor='black', label=f'Distribution {i + 1}')
+        plt.title(title)
+        plt.xlabel('Value')
+        plt.ylabel('Frequency')
+        plt.legend()
+        plt.grid(True)
         plt.show()
 
-# Example usage
+    def plot_mu0_distributions(self, mu0_distributions, title):
+        plt.figure(figsize=(12, 6))
+        for i in range(len(mu0_distributions)):
+            plt.hist(mu0_distributions[i].numpy(), bins=10, alpha=0.5, edgecolor='black',
+                     label=f'Mu0 Distribution {i + 1}')
+        plt.title(title)
+        plt.xlabel('Value')
+        plt.ylabel('Frequency')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
 if __name__ == "__main__":
+    # Parameters
     num_distributions = 10
     num_samples = 100
-    num_dimensions = 3
+    source_means = [[0] for i in range(num_distributions)]
+    target_means = [[1] for i in range(num_distributions)]
+    covariances = [[[1]] for _ in range(num_distributions)]
+    seed = 42  # Set a seed for reproducibility
 
-    # Means and standard deviations for each cluster in n-dimensional space
-    means = np.random.randint(low=1,high=500, size=(num_distributions, num_dimensions))
-    std_devs = np.random.randint(low=1,high=50, size=(num_distributions, num_dimensions))
+    # Create and use the DataSimulator
+    generator = DataSimulator(num_distributions, num_samples, source_means, target_means, covariances, seed)
 
-    simulator = DataSimulator(num_distributions, num_samples, num_dimensions)
-    source_dists = simulator.generate_source_data(means,std_devs)
-    target_dists = simulator.generate_target_data(source_dists)
-    input_data = simulator.generate_input_data(source_dists,target_dists)
-    mu_data,step = simulator.generate_mu0_distributions(source_dists)
+    # Standard deviation for the noise added to source means
+    source_means_std = 2.0
 
-    data = [source_dists, target_dists]
-    labels = ["Dataset 1", "Dataset 2"]
-    colors = ['blue', 'red']
-    # Visualize the generated data
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    for idx, dataset in enumerate(data):
-        color = colors[idx] if colors else None
-        for i in range(dataset.shape[0]):
-            ax.scatter(dataset[i, :, 0], dataset[i, :, 1], dataset[i, :, 2],
-                       label=f'{labels[idx]} Distribution {i + 1}' if labels else f'Distribution {i + 1}', color=color)
-    ax.set_xlabel('Dimension 1')
-    ax.set_ylabel('Dimension 2')
-    ax.set_zlabel('Dimension 3')
-    # ax.legend()
-    plt.show()
+    generator.generate_data(source_means_std)
+    source_dists = generator.data  # Assign the generated data to source_dists
+
+    # Generate target data
+    target_means_std = 2.0  # Standard deviation for the noise added to target means
+    target_data = generator.generate_target_data(source_means_std, target_means_std)
+
+    # Plot the data
+    generator.plot_data(generator.data, 'Histogram of Generated 1D Gaussian Source Data')
+    generator.plot_data(target_data, 'Histogram of Generated 1D Gaussian Target Data')
+
+    # Generate mu0 distributions based on source data
+    mu0_distributions, step = generator.generate_mu0_distributions()
+
+    # Plot the mu0 distributions
+    generator.plot_mu0_distributions(mu0_distributions, 'Histogram of Mu0 Distributions')
+
+    # Print the shape of mu0_distributions to verify
+    print("Mu0 Distributions Shape:", mu0_distributions.shape)
