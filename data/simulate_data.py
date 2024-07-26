@@ -56,13 +56,14 @@ class DataSimulator:
         source_max = torch.max(self.data)
         source_range = torch.abs(source_max - source_min)
 
-        num_mu0s = int(torch.ceil(source_range / 2))
+        num_mu0s = int(torch.ceil(source_range))
         step = source_range.item() / num_mu0s
         mu0_means_per_dim = [source_min + k * step for k in range(int(num_mu0s))]
         mu0_means_per_dim = torch.stack(mu0_means_per_dim)
         mu0_means_tuple = (mu0_means_per_dim,) * self.source_means.shape[1]
         mu0_means = torch.cartesian_prod(*mu0_means_tuple)
-        mu0_std = abs(step)
+        mu0_std = 1
+        # mu0_std = abs(step / 2)
 
         mu0_distributions = []
         cov = torch.eye(self.source_means.shape[1]) * mu0_std  # Assuming the same covariance structure for all
