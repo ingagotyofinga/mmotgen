@@ -1,8 +1,4 @@
-
-
-
-
-
+# Univariate Gaussian Simple Map Neural Wasserstein Regression
 
 import torch
 import torch.nn as nn
@@ -10,8 +6,15 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import PillowWriter
 from matplotlib.animation import FuncAnimation
 from sklearn.model_selection import train_test_split
+import os
+from datetime import datetime
+
+# Get the current date
+current_date = datetime.now().strftime("%Y-%m-%d")
+
 
 # Seed for reproducibility
 torch.manual_seed(42)
@@ -21,22 +24,29 @@ np.random.seed(42)
 def generate_gaussian_data(num_samples, mean, std, num_distributions):
     data = []
     for _ in range(num_distributions):
-        samples = np.random.normal(loc=mean, scale=std, size=num_samples)
+        samples = torch.distributions.MultivariateNormal(mean, std).sample((num_samples,))
         data.append(samples)
-    return np.array(data)
+    return torch.stack(data)
 
 num_samples = 1000
 num_distributions = 10000
-source_mean = 0
-source_std = 1
-target_mean = 7  # Shifted to 7 to be significantly different from source
-target_std = 2
+num_dimensions = 1
+source_mean = torch.zeros(num_dimensions)
+source_cov = torch.eye(num_dimensions)
+a = 2
+b = 20
+# target_mean = 7  # Shifted to 7 to be significantly different from source
+# target_std = 2
 
-source_data = generate_gaussian_data(num_samples, source_mean, source_std, num_distributions)
-target_data = generate_gaussian_data(num_samples, target_mean, target_std, num_distributions)
+source_data = generate_gaussian_data(num_samples, source_mean, source_cov, num_distributions)
+noise = torch.rand_like(source_data)
+noise = noise - noise.mean()
+target_data = (a*source_data + b) + noise
 
-source_data = (source_data - np.mean(source_data, axis=0)) / np.std(source_data, axis=0)
-target_data = (target_data - np.mean(target_data, axis=0)) / np.std(target_data, axis=0)
+# target_data = generate_gaussian_data(num_samples, target_mean, target_std, num_distributions)
+
+# source_data = (source_data - np.mean(source_data, axis=0)) / np.std(source_data, axis=0)
+# target_data = (target_data - np.mean(target_data, axis=0)) / np.std(target_data, axis=0)
 
 # Flatten data for training
 source_data_flat = source_data.reshape(num_distributions, -1)
@@ -94,8 +104,8 @@ def gaussian_wasserstein_loss(pred, target, bandwidth=4):
     wasserstein_distance = torch.sqrt((pred_mean - target_mean) ** 2 + (pred_std - target_std) ** 2)
 
     # Kernel smoothing
-    kernel = torch.exp(-wasserstein_distance ** 2 / (2 * bandwidth ** 2))
-    smoothed_loss = wasserstein_distance * kernel
+    # kernel = torch.exp(-wasserstein_distance ** 2 / (2 * bandwidth ** 2))
+    smoothed_loss = wasserstein_distance
 
     return smoothed_loss.sum()
 
@@ -105,7 +115,7 @@ train_losses = []
 val_losses = []
 
 optimizer = optim.SGD(model.parameters(), lr=0.01)  # Adjusted learning rate
-patience = 10  # Early stopping patience
+patience = 5 # Early stopping patience
 best_val_loss = float('inf')
 epochs_no_improve = 0
 
@@ -173,6 +183,10 @@ plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.title('Training and Validation Loss')
 plt.legend()
+# Save the loss plot as a .jpg image with the current date attached
+file_name = f'SM_loss_curves_{current_date}.jpg'
+plt.savefig(file_name, format='jpg')
+print(f"Saved loss curve as {file_name}")
 plt.show()
 
 # Create animation
@@ -192,16 +206,64 @@ def animate_distributions(target_sample, predictions_over_epochs, title):
         ax.set_title(f'{title} - Epoch {epoch + 1}')
         ax.legend()
 
-    ani = FuncAnimation(fig, update, frames=num_epochs, repeat=False)
+    ani = FuncAnimation(fig, update, frames=len(train_predictions_over_epochs), repeat=False,
+                        save_count=len(train_predictions_over_epochs))
     plt.show()
     return ani
 
-# Generate animations
-train_animation = animate_distributions(train_target_sample, train_predictions_over_epochs,
-                                        'Evolution of Train Distributions')
-test_animation = animate_distributions(test_target_sample, test_predictions_over_epochs,
-                                       'Evolution of Test Distributions')
+def plot_and_save_distributions(target_sample, predictions_over_epochs, title, epochs, row_index, axs, save_prefix):
+    """ Function to plot and save target vs predicted distributions for specified epochs. """
 
-# Save animations
-train_animation.save('train_animation.gif', writer='imagemagick')
-test_animation.save('test_animation.gif', writer='imagemagick')
+    for i, epoch in enumerate(epochs):
+        ax = axs[row_index, i]
+        prediction = predictions_over_epochs[epoch - 1].reshape(-1, 1)  # Epochs are 1-indexed
+        target_sample_reshaped = target_sample.reshape(-1, 1)
+
+        ax.hist(target_sample_reshaped, bins=30, alpha=0.5, label='Ground Truth', color='red')
+        ax.hist(prediction, bins=30, alpha=0.5, label=f'Prediction (Epoch {epoch})', color='blue')
+        ax.set_xlabel('Value')
+        ax.set_ylabel('Frequency')
+        ax.set_title(f'Epoch {epoch}')
+        ax.legend()
+
+        # Save the figure for each subplot as a .jpg file
+        file_name = f"{save_prefix}_epoch_{epoch}.jpg"
+        plt.savefig(file_name, format='jpg')
+        print(f"Saved {file_name}")
+
+        # Save the figure for each subplot as a .jpg file
+        file_name = f"{save_prefix}_epoch_{epoch}.jpg"
+        plt.savefig(file_name, format='jpg')
+        print(f"Saved {file_name}")
+
+# Generate animations
+# train_animation = animate_distributions(train_target_sample, train_predictions_over_epochs,
+#                                         'Evolution of Train Distributions')
+# test_animation = animate_distributions(test_target_sample, test_predictions_over_epochs,
+#                                        'Evolution of Test Distributions')
+#
+# print(f"Number of saved predictions: {len(train_predictions_over_epochs)}")
+#
+# # Save animations with PillowWriter
+# train_animation.save('train_animation_2.gif', writer=PillowWriter(fps=5))  # fps controls the speed of animation
+# test_animation.save('test_animation_2.gif', writer=PillowWriter(fps=5))
+
+# Epochs you want to display (1st, 2nd, and final)
+epochs_to_plot = [1, 2, len(train_predictions_over_epochs)]  # 1, 2, and final epoch
+
+# Create the figure and axes (2 rows for train/test and 3 columns for the epochs)
+fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+fig.suptitle('Train and Test Distributions at Epochs 1, 2, and Final', fontsize=16)
+
+# Plot and save the train distributions (row 0 in the subplot grid)
+plot_and_save_distributions(train_target_sample, train_predictions_over_epochs,
+                            'Train Distributions', epochs_to_plot, row_index=0, axs=axs, save_prefix='train_images/train')
+
+# Plot and save the test distributions (row 1 in the subplot grid)
+plot_and_save_distributions(test_target_sample, test_predictions_over_epochs,
+                            'Test Distributions', epochs_to_plot, row_index=1, axs=axs, save_prefix='test_images/test')
+
+# Adjust layout to fit the subplots neatly
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.show()
+

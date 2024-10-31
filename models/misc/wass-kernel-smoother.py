@@ -41,27 +41,33 @@ def box_kernel(mu_0, mu_i, bandwidth):
     kernel = (1 / (2 * bandwidth)) * indicator
     return kernel
 
+def gaussian_kernel(mu_0, mu_i, bandwidth):
+    sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
+    wasserstein_distance = sink_loss(mu_0, mu_i)
+    kernel = torch.exp(-wasserstein_distance**2 / (2 * bandwidth**2))
+    return kernel
+
 def custom_loss(push, localdf, source, target, bw, blur=0.05, p=2, batch_size=1):
     sink_loss = geomloss.SamplesLoss(loss='sinkhorn', p=p, blur=blur)
     wasserstein_distance = [sink_loss(push[i], target[i]) for i in range(batch_size)]
     wasserstein_distance = torch.stack(wasserstein_distance)
-    kernel = [box_kernel(localdf, source[i], bw) for i in range(batch_size)]
+    kernel = [gaussian_kernel(localdf, source[i], bw) for i in range(batch_size)]
     kernel = torch.stack(kernel)
     total_loss = torch.sum(wasserstein_distance * kernel)
     return total_loss
 
-def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None, sigma_source=None, mu_target=None,
-                                  sigma_target=None):
-    if mu_source is None:
-        mu_source = torch.mean(source_samples)
-    if sigma_source is None:
-        sigma_source = torch.std(source_samples)
-    if mu_target is None:
-        mu_target = torch.mean(target_samples)
-    if sigma_target is None:
-        sigma_target = torch.std(target_samples)
-    mapped_samples = mu_target + (sigma_target / sigma_source) * (source_samples - mu_source)
-    return mapped_samples
+# def univar_gaussian_transport_map(source_samples, target_samples, mu_source=None, sigma_source=None, mu_target=None,
+#                                   sigma_target=None):
+#     if mu_source is None:
+#         mu_source = torch.mean(source_samples)
+#     if sigma_source is None:
+#         sigma_source = torch.std(source_samples)
+#     if mu_target is None:
+#         mu_target = torch.mean(target_samples)
+#     if sigma_target is None:
+#         sigma_target = torch.std(target_samples)
+#     mapped_samples = mu_target + (sigma_target / sigma_source) * (source_samples - mu_source)
+#     return mapped_samples
 
 def calculate_statistics(distributions):
     means = [torch.mean(dist) for dist in distributions]
@@ -79,18 +85,18 @@ num_distributions = 50
 num_bins = 100
 num_dimensions = 1
 
-source_means = [[0] for _ in range(num_distributions)]
-target_means = [[1] for _ in range(num_distributions)]
-covariances = [[[1]] for _ in range(num_distributions)]
+source_means = torch.zeros(num_dimensions)
+target_means = 2*torch.zeros(num_dimensions)+5
+covariances = torch.eye(num_dimensions)
 seed = 42  # Set a seed for reproducibility
 
 simulator = DataSimulator(num_distributions, num_bins, source_means, target_means, covariances, seed)
-source_means_std = 0.5  # Standard deviation for the noise added to source means
+source_means_std = 5.0  # Standard deviation for the noise added to source means
 simulator.generate_data(source_means_std)
 source_dists = simulator.data
 # Generate target data
-target_means_std = 0.5  # Standard deviation for the noise added to target means
-target_dists = simulator.generate_target_data(source_means_std, target_means_std)
+target_means_std = 5.0  # Standard deviation for the noise added to target means
+target_dists = simulator.generate_target_data(target_means_std)
 input_data = simulator.generate_input_data()
 simulator.plot_data(simulator.data, 'Histogram of Generated 1D Gaussian Source Data')
 simulator.plot_data(target_dists, 'Histogram of Generated 1D Gaussian Target Data')
@@ -117,16 +123,16 @@ target_dists_flat = normalized_target_dists.view(num_distributions, -1)
 source_train, source_test, target_train, target_test = train_test_split(source_dists_flat, target_dists_flat,
                                                                         test_size=0.2, random_state=42)
 
-train_dataset = TensorDataset(source_train, target_train)
+train_dataset = TensorDataset(source_train, target_train) # (2 X [(1-test_size)num_distributions] X num_bins]
 test_dataset = TensorDataset(source_test, target_test)
 
 batch_size = math.ceil(num_distributions * 0.1)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-input_size = num_bins * num_dimensions
-hidden_size = 64  # Increased hidden size
-output_size = num_bins * num_dimensions
+input_size = num_bins*num_dimensions
+hidden_size = int(num_bins/2)
+output_size = num_bins*num_dimensions
 learning_rate = 0.001
 blur_value = 0.05
 
@@ -136,8 +142,8 @@ num_epochs = 100  # Increased number of epochs
 patience = 10  # Increased patience for early stopping
 
 def train_model(mu0_idx, blur, lr):
-    mu0_samples = mu0_distributions[mu0_idx]
-    mu0_tensor = mu0_samples.clone().detach().requires_grad_(False)
+    mu0_sample = mu0_distributions[mu0_idx] # reference measure
+    mu0_tensor = mu0_sample.clone().detach().requires_grad_(False)
     model = EnhancedOTMapNN(input_size, hidden_size, output_size)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 
@@ -162,8 +168,8 @@ def train_model(mu0_idx, blur, lr):
 
             loss = custom_loss(tpush, mu0_tensor, source_batch, target_batch, step, blur=blur, batch_size=batch_size)
 
-            optimizer.zero_grad()
-            loss.backward()
+            optimizer.zero_grad() # resets gradient to zero
+            loss.backward() #
             optimizer.step()
 
             epoch_train_loss.append(loss.item())
