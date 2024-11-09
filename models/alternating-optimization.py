@@ -4,11 +4,15 @@ import matplotlib.pyplot as plt
 # Define constants and initializations
 n = 100  # sample size
 dim = 2  # dimension of the distributions
-m = torch.zeros(n, dim, 1) + 1e-2*torch.randn(n,dim,1)  # source means (n x dim x 1)
-q = (torch.zeros(n, dim, 1) + 9) + 1e-2*torch.randn(n,dim,1)  # target means (n x dim x 1)
-Sigma = [torch.eye(dim) for _ in range(n)]  # list of source covariance matrices (dim x dim)
-Gamma = [3*torch.eye(dim) for _ in range(n)]  # list of target covariance matrices (dim x dim)
-mu0 = torch.zeros(dim, 1)  # reference mean
+A = 2*torch.eye(dim)
+b = 5
+E = 1e-2*torch.randn(dim, dim)
+err = [E @ E.T for _ in range(n)]
+m = torch.zeros(n, dim, 1) + torch.randn(n,dim,1)  # source means (n x dim x 1)
+q = A @ m + b  # target means (n x dim x 1)
+Sigma = [torch.eye(dim) for _ in range(n)]  # source covariance matrices (dim x dim)
+Gamma = [A @ sigma @ A.T + e for sigma, e in zip(Sigma, err)] # target covariance matrices (dim x dim)
+mu0 = torch.randn(dim, 1)  # reference mean
 Sigma0 = torch.eye(dim)  # reference covariance matrix
 
 # Compute expected B using the formula: Σ^(-1/2) * (Σ^(1/2) Γ Σ^(1/2)) Σ^(-1/2)
@@ -87,8 +91,8 @@ def compute_B(alpha, m, q, Sigma, Gamma, mu0, Sigma0, bandwidth=1.0, epsilon=0):
 # Initialize B and set optimization parameters
 B = torch.eye(dim) + 0.01 * torch.randn(dim, dim)  # initialize B as a random dim x dim matrix
 tolerance = 1e-8
-max_iter = 1000
-learning_rate = 1e-3
+max_iter = 100
+learning_rate = 1e-1
 
 # Lists to store alpha and B values for each iteration
 alpha_values = []

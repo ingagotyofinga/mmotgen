@@ -5,11 +5,17 @@ import matplotlib.pyplot as plt
 torch.manual_seed(0)
 # Define constants and initializations
 n = 100  # sample size
-dim = 4  # dimension of the distributions
-m = torch.zeros(n, dim, 1) + 1e-2*torch.randn(n,dim,1)  # source means (n x dim x 1)
-q = (torch.zeros(n, dim, 1) + 9) + 1e-2*torch.randn(n,dim,1)  # target means (n x dim x 1)
-Sigma = [torch.eye(dim) + 1e-6 * torch.eye(dim) for _ in range(n)]  # source covariance matrices (dim x dim)
-Gamma = [4 * torch.eye(dim) + 1e-6 * torch.eye(dim) for _ in range(n)]  # target covariance matrices (dim x dim)
+dim = 2  # dimension of the distributions
+A = 2*torch.eye(dim)
+b = 5
+E = 1e-2*torch.randn(dim, dim)
+# err = [E @ E.T for _ in range(n)]
+err = 1e-2*torch.randn(n, dim, 1)
+m = torch.zeros(n, dim, 1) + torch.randn(n,dim,1)  # source means (n x dim x 1)
+q = A @ m + b + err # target means (n x dim x 1)
+Sigma = [torch.eye(dim) for _ in range(n)]  # source covariance matrices (dim x dim)
+# Gamma = [A @ sigma @ A.T + e for sigma, e in zip(Sigma, err)] # target covariance matrices (dim x dim)
+Gamma = [A @ sigma @ A.T for sigma in Sigma]
 mu0 = torch.randn(dim, 1)  # reference mean
 Sigma0 = torch.eye(dim)  # reference covariance matrix
 
