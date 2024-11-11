@@ -4,10 +4,16 @@ import matplotlib.pyplot as plt
 
 torch.manual_seed(0)
 # Define constants and initializations
-n = 100  # sample size
+n = 500 # sample size
 dim = 2  # dimension of the distributions
-A = 2*torch.eye(dim)
-b = 5
+theta = torch.tensor(torch.pi / 4)  # 45 degrees rotation
+s = 2.0  # scaling factor
+
+# Define a rotation + scaling matrix A
+A = s * torch.tensor([[torch.cos(theta), -torch.sin(theta)],
+                      [torch.sin(theta), torch.cos(theta)]])
+b = torch.tensor([[5.0], [3.0]])  # Translation vector
+
 E = 1e-2*torch.randn(dim, dim)
 # err = [E @ E.T for _ in range(n)]
 err = 1e-2*torch.randn(n, dim, 1)
@@ -68,17 +74,17 @@ def compute_loss(B, a, m, q, Sigma, Gamma, mu0, Sigma0, bandwidth=1.0):
         W2_distance = wasserstein_distance_gaussian(m_i_transformed, Sigma_i_transformed, q[i], Gamma[i])
         kernel_value = wasserstein_kernel(mu0, Sigma0, m[i], Sigma[i], bandwidth)
         loss += W2_distance * kernel_value
-    return loss
+    return loss/n
 
 
 # Initialize B and set optimization parameters
 B = (torch.eye(dim) + 0.01 * torch.randn(dim, dim)).detach().requires_grad_(True)
 tolerance = 1e-8
-max_iter = 1000
+max_iter = 400
 learning_rate = 1e-1  # Higher learning rate for faster convergence
 
 # Plateau detection parameters
-plateau_threshold = 1e-6  # Minimum change in loss considered as progress
+plateau_threshold = 1e-22  # Minimum change in loss considered as progress
 plateau_patience = 10  # Number of iterations to check for plateau
 
 # Define optimizer
@@ -123,7 +129,7 @@ for iteration in range(max_iter):
 
     # Compute expected B and norm differences for convergence
     B_norms.append(torch.norm(B).item())
-    B_expected = compute_expected_B(Sigma0, Gamma[0])
+    B_expected = A
     difference_norms.append(torch.norm(B - B_expected).item())
 
     # Convergence check
@@ -132,8 +138,8 @@ for iteration in range(max_iter):
         break
 
 # Calculate expected B and alpha based on the final optimized values
-B_expected = compute_expected_B(Sigma0, Gamma[0])  # Using the reference covariance matrix
-alpha_expected = compute_expected_alpha(B, m, q)
+B_expected = A  # Using the reference covariance matrix
+alpha_expected = b
 
 print("m mean:", m.mean(dim=0))
 print("q mean:", q.mean(dim=0))
